@@ -1,6 +1,6 @@
 # Графика сайта
 
-Знак и две иллюстрации созданы встроенным GPT Image. В приложении иллюстрации хранятся в WebP, знак — в PNG с прозрачностью.
+Знак и иллюстрации созданы встроенным GPT Image. В приложении иллюстрации хранятся в WebP, знак — в PNG с прозрачностью.
 
 ## Знак
 
@@ -17,5 +17,7 @@
 ## Каталог наград
 
 [Файл изображения](../public/team-move-rewards.webp)
+
+Для карточек каталога также подготовлены две предметные фотографии в той же палитре. [Книга](../public/team-reward-book.webp) · [Блокнот](../public/team-reward-notebook.webp)
 
 > Use case: product-mockup. Asset type: landscape editorial accent photo for the rewards section of a site for employee challenges. Art-directed still life of a real warm-ivory ceramic espresso mug with espresso and a red paper claim ticket with absolutely no writing, sitting on a golden yellow tabletop. Include a neatly folded piece of ivory paper and a single dark aubergine wooden game token as secondary objects. Three-quarter top-down view with objects grouped near the middle and clear margins, compose for a wide horizontal crop. The item surfaces are matte, the shadows are tactile and directional, and the color story is marigold, vermilion, aubergine, and ivory. Evoke the independent print/design shop physicality and a small workplace reward. No text, no numbers, no brand, no graphic overlay, no gradient, no collage seam, no plastic or neon.

@@ -39,7 +39,9 @@ describe('REST API', () => {
   it('serves health and the OpenAPI contract', async () => {
     assert.deepEqual((await send('/health')).data, { status: 'ok' });
     const spec = await (await fetch(root + '/openapi.json')).json();
-    assert.equal(Object.values(spec.paths).reduce((sum, path) => sum + Object.keys(path).length, 0), 26);
+    assert.ok(spec.paths['/api/auth/login'].post.responses[200]);
+    assert.ok(spec.paths['/api/cart/checkout'].post.responses[201]);
+    assert.ok(spec.paths['/api/admin/cashback/reports/{id}'].patch.responses[200]);
   });
 
   it('registers, signs in, rejects duplicate emails and clears sessions', async () => {

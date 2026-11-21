@@ -1,19 +1,24 @@
 import { digest, newToken, passwordHash, sessionCookie, sessionSeconds, sessionToken, verifyPassword } from './auth.js';
 import { rewardCategories, taskCategories } from './catalog.js';
 import { transaction } from './db.js';
-import { HttpError, conflict, emailValue, invalid, json, missing, readJson, textValue } from './http.js';
+import { onboarding } from './activity.js';
+import { createGameApi } from './game-api.js';
+import { balanceOf } from './wallet.js';
+import { saveLogo } from './settings.js';
+import { HttpError, conflict, emailValue, invalid, json, missing, readJson, readLogo, textValue } from './http.js';
 
-const resources = { tasks: taskCategories, rewards: rewardCategories };
-const publicFields = 'id, title, description, category, points, active';
 const profileFields = 'u.id, u.email, u.name, u.role';
-const balanceSql = 'SELECT COALESCE(SUM(amount),0) AS balance FROM point_entries WHERE user_id=?';
+const rewardCategory = 'COALESCE((SELECT code FROM store_reward_categories WHERE reward_id=rewards.id),category)';
+const catalogFields = table => table === 'rewards'
+  ? 'id,title,description,' + rewardCategory + ' AS category,points,active,(SELECT image FROM reward_media WHERE reward_id=rewards.id) AS image'
+  : 'id,title,description,category,points,active';
 const requireAuth = () => new HttpError(401, 'AUTH_REQUIRED', 'Войдите в аккаунт.');
 const forbidden = () => new HttpError(403, 'FORBIDDEN', 'Недостаточно прав для этого действия.');
 const rejected = () => new HttpError(401, 'INVALID_CREDENTIALS', 'Проверьте email и пароль.');
 const fallbackHash = passwordHash(newToken());
 
 function catalogItem(db, table, id, includeInactive = false) {
-  const item = db.prepare('SELECT ' + publicFields + ' FROM ' + table
+  const item = db.prepare('SELECT ' + catalogFields(table) + ' FROM ' + table
     + ' WHERE id=? AND (active=1 OR ?=1)').get(id, Number(includeInactive));
   if (!item) throw missing();
   return item;
@@ -23,11 +28,14 @@ function catalogList(db, table, params, includeInactive) {
   const query = textValue({ q: params.get('q') ?? '' }, 'q', 0, 100, { label: 'Поиск' }).toLowerCase();
   const category = params.get('category');
   const sort = params.get('sort') ?? 'new';
-  if (category && !resources[table].includes(category)) throw invalid({ category: 'Неизвестная категория.' });
+  if (category && !(table === 'tasks' ? taskCategories.includes(category) :
+    db.prepare('SELECT 1 FROM store_categories WHERE code=? AND (active=1 OR ?=1)').get(category,Number(includeInactive)))) {
+    throw invalid({ category: 'Неизвестная категория.' });
+  }
   if (!['new', 'points-asc', 'points-desc'].includes(sort)) throw invalid({ sort: 'Неизвестная сортировка.' });
   const order = { new: 'id DESC', 'points-asc': 'points ASC,id DESC', 'points-desc': 'points DESC,id DESC' }[sort];
-  return db.prepare('SELECT ' + publicFields + ' FROM ' + table
-    + ' WHERE (active=1 OR ?=1) AND (? IS NULL OR category=?) ORDER BY ' + order)
+  return db.prepare('SELECT ' + catalogFields(table) + ' FROM ' + table
+    + ' WHERE (active=1 OR ?=1) AND (? IS NULL OR ' + (table === 'rewards' ? rewardCategory : 'category') + '=?) ORDER BY ' + order)
     .all(Number(includeInactive), category || null, category || null)
     .filter(item => (item.title + ' ' + item.description).toLowerCase().includes(query));
 }
@@ -36,27 +44,48 @@ function upsertCatalog(db, table, id, body) {
   const title = textValue(body, 'title', 3, 100, { label: 'Название' });
   const description = textValue(body, 'description', 10, 1200, { label: 'Описание' });
   const { category, points, active = true } = body;
-  if (!resources[table].includes(category)) throw invalid({ category: 'Выберите категорию.' });
   if (!Number.isInteger(points) || points < 1 || points > 10000) throw invalid({ points: 'Введите целое число от 1 до 10000.' });
   if (typeof active !== 'boolean') throw invalid({ active: 'Ожидается true или false.' });
-  if (id) {
-    catalogItem(db, table, id, true);
-    db.prepare('UPDATE ' + table + ' SET title=?,description=?,category=?,points=?,active=? WHERE id=?')
-      .run(title, description, category, points, Number(active), id);
-    return catalogItem(db, table, id, true);
+  if (typeof category !== 'string' || !(table === 'tasks' ? taskCategories.includes(category) :
+    db.prepare('SELECT 1 FROM store_categories WHERE code=? AND (active=1 OR ?=0)').get(category, Number(active)))) {
+    throw invalid({ category: 'Выберите категорию.' });
   }
-  const insert = db.prepare('INSERT INTO ' + table + '(title,description,category,points,active) VALUES(?,?,?,?,?)')
-    .run(title, description, category, points, Number(active));
-  return catalogItem(db, table, Number(insert.lastInsertRowid), true);
+  const custom = table === 'rewards' && !rewardCategories.includes(category);
+  const storedCategory = custom ? rewardCategories[0] : category;
+  const media = table === 'rewards' && body.image !== undefined;
+  if (media && !['','coffee','book','notebook'].includes(body.image)) throw invalid({ image: 'Выберите изображение из списка.' });
+  return transaction(db, () => {
+    if (id) {
+      catalogItem(db, table, id, true);
+      db.prepare('UPDATE ' + table + ' SET title=?,description=?,category=?,points=?,active=? WHERE id=?')
+        .run(title, description, storedCategory, points, Number(active), id);
+    } else {
+      const insert = db.prepare('INSERT INTO ' + table + '(title,description,category,points,active) VALUES(?,?,?,?,?)')
+        .run(title, description, storedCategory, points, Number(active));
+      id = Number(insert.lastInsertRowid);
+    }
+    if (media) {
+      if (body.image) db.prepare('INSERT INTO reward_media VALUES(?,?) ON CONFLICT(reward_id) DO UPDATE SET image=excluded.image').run(id, body.image);
+      else db.prepare('DELETE FROM reward_media WHERE reward_id=?').run(id);
+    }
+    if (table === 'rewards') {
+      if (custom) db.prepare('INSERT INTO store_reward_categories VALUES(?,?) ON CONFLICT(reward_id) DO UPDATE SET code=excluded.code').run(id, category);
+      else db.prepare('DELETE FROM store_reward_categories WHERE reward_id=?').run(id);
+    }
+    return catalogItem(db, table, id, true);
+  });
 }
 
-function submitTask(db, user, taskId, body) {
+function submitTask(db, user, taskId, body, quest = false) {
   const note = textValue(body, 'note', 10, 1000, { label: 'Отчёт' });
   return transaction(db, () => {
     const task = catalogItem(db, 'tasks', taskId);
     const existing = db.prepare('SELECT id,status FROM submissions WHERE user_id=? AND task_id=?').get(user.id, task.id);
     if (existing && existing.status !== 'rejected') {
       throw conflict('ALREADY_SUBMITTED', 'Отчёт по этому заданию уже отправлен.');
+    }
+    if ((quest || task.category === 'onboarding') && onboarding(db, user.id).current !== taskId) {
+      throw conflict('STEP_LOCKED', 'Сначала завершите текущий шаг адаптации.');
     }
     if (existing) {
       return db.prepare(`UPDATE submissions SET note=?,status='pending',points=?,feedback=NULL,
@@ -93,7 +122,7 @@ function redeem(db, user, rewardId) {
     if (db.prepare('SELECT 1 FROM redemptions WHERE user_id=? AND reward_id=?').get(user.id, reward.id)) {
       throw conflict('ALREADY_REDEEMED', 'Вы уже обменяли баллы на эту награду.');
     }
-    const { balance } = db.prepare(balanceSql).get(user.id);
+    const balance = balanceOf(db, user.id);
     if (balance < reward.points) throw conflict('INSUFFICIENT_POINTS', 'На балансе недостаточно баллов.');
     const order = db.prepare('INSERT INTO redemptions(user_id,reward_id,points) VALUES(?,?,?) RETURNING *')
       .get(user.id, reward.id, reward.points);
@@ -104,10 +133,8 @@ function redeem(db, user, rewardId) {
 }
 
 function dashboard(db, user) {
-  const ledger = db.prepare(`SELECT p.id,p.amount,p.created_at,COALESCE(t.title,r.title) AS title
-    FROM point_entries p LEFT JOIN submissions s ON s.id=p.submission_id LEFT JOIN tasks t ON t.id=s.task_id
-    LEFT JOIN redemptions d ON d.id=p.redemption_id LEFT JOIN rewards r ON r.id=d.reward_id
-    WHERE p.user_id=? ORDER BY p.id DESC`).all(user.id);
+  const ledger = db.prepare(`SELECT id,amount,created_at,title FROM wallet_entries
+    WHERE user_id=? ORDER BY created_at DESC,(id<0) DESC,abs(id) DESC`).all(user.id);
   const submissions = db.prepare(`SELECT s.*,t.title,t.category,t.active FROM submissions s JOIN tasks t ON t.id=s.task_id
     WHERE s.user_id=? ORDER BY s.submitted_at DESC,s.id DESC`).all(user.id);
   const redemptions = db.prepare(`SELECT d.*,r.title FROM redemptions d JOIN rewards r ON r.id=d.reward_id
@@ -115,10 +142,12 @@ function dashboard(db, user) {
   const progress = db.prepare(`SELECT COUNT(*) AS total,COUNT(CASE WHEN s.status='approved' THEN 1 END) AS completed
     FROM tasks t LEFT JOIN submissions s ON t.id=s.task_id AND s.user_id=?
     WHERE t.category='onboarding' AND t.active=1`).get(user.id);
-  return { user, balance: db.prepare(balanceSql).get(user.id).balance, ledger, submissions, redemptions, progress };
+  const orderCount = db.prepare("SELECT COUNT(*) AS count FROM orders WHERE user_id=? AND status='fulfilled'").get(user.id).count;
+  return { user, balance: balanceOf(db, user.id), ledger, submissions, redemptions, progress, orderCount };
 }
 
-export function createApi(db, { secureCookie = false, allowedOrigin } = {}) {
+export function createApi(db, { secureCookie = false, allowedOrigin, telegram } = {}) {
+  const gameApi = createGameApi(db, telegram, submitTask);
   const authAttempts = new Map();
   function limitAuth(request) {
     const key = request.socket.remoteAddress;
@@ -146,6 +175,10 @@ export function createApi(db, { secureCookie = false, allowedOrigin } = {}) {
     }
     function admin() {
       if (authenticated().role !== 'admin') throw forbidden();
+      return user;
+    }
+    function employee() {
+      if (authenticated().role !== 'employee') throw forbidden();
       return user;
     }
     function signIn(account, status) {
@@ -202,9 +235,11 @@ export function createApi(db, { secureCookie = false, allowedOrigin } = {}) {
       authenticated();
       const metric = url.searchParams.get('metric') ?? 'points';
       if (!['points', 'tasks'].includes(metric)) throw invalid({ metric: 'Выберите points или tasks.' });
-      const score = metric === 'points' ? 'SUM(p.amount)' : 'COUNT(*)';
-      const items = db.prepare(`SELECT u.name,${score} AS score FROM point_entries p JOIN users u ON u.id=p.user_id
-        WHERE p.amount>0 AND u.role='employee' GROUP BY u.id ORDER BY score DESC,u.id LIMIT 50`).all();
+      const earned = metric === 'points' ? `SELECT user_id,amount FROM point_entries WHERE amount>0
+        UNION ALL SELECT user_id,amount FROM extended_points WHERE amount>0 AND kind IN ('challenge','poll','cashback','wheel')`
+        : 'SELECT user_id,1 AS amount FROM point_entries WHERE submission_id IS NOT NULL';
+      const items = db.prepare(`SELECT u.name,SUM(p.amount) AS score FROM (${earned}) p JOIN users u ON u.id=p.user_id
+        WHERE u.role='employee' GROUP BY u.id ORDER BY score DESC,u.id LIMIT 50`).all();
       return json(response, 200, { items });
     }
 
@@ -255,6 +290,11 @@ export function createApi(db, { secureCookie = false, allowedOrigin } = {}) {
       const reviewer = admin();
       return json(response, 200, reviewTask(db, reviewer, Number(review[1]), await readJson(request)));
     }
+    if (route === '/api/admin/settings/logo' && ['PUT','DELETE'].includes(method)) {
+      admin();
+      return json(response, 200, saveLogo(db, method === 'PUT' ? await readLogo(request) : null));
+    }
+    if (await gameApi(request, response, url, { authenticated, admin, employee })) return;
     throw missing();
   };
 }

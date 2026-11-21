@@ -1,0 +1,107 @@
+[
+  {
+    "name": "Прогресс и награда челленджа",
+    "method": "GET",
+    "path": "/api/challenges/1",
+    "status": 200,
+    "response": {
+      "id": 1,
+      "title": "Первый командный ход",
+      "description": "Вступите в челлендж и сдайте отчёт по одному из заданий адаптации.",
+      "mode": "individual",
+      "target": 1,
+      "points": 70,
+      "badge": "Первый ход",
+      "starts_at": 1795186015511,
+      "ends_at": 1797864415511,
+      "active": 1,
+      "tasks": [
+        {
+          "id": 1,
+          "title": "Знакомство с командой",
+          "points": 120,
+          "active": 1
+        }
+      ],
+      "status": "open",
+      "joined": true,
+      "department": "Разработка",
+      "claimed": true,
+      "progress": 1,
+      "claimable": false
+    }
+  },
+  {
+    "name": "Оформленный заказ",
+    "method": "GET",
+    "path": "/api/orders",
+    "status": 200,
+    "response": {
+      "items": [
+        {
+          "id": 1,
+          "user_id": 1,
+          "total": 160,
+          "comment": "Заберу в офисе.",
+          "status": "placed",
+          "created_at": "2026-11-21 14:46:58",
+          "name": "Алекс Морозов",
+          "items": [
+            {
+              "reward_id": 1,
+              "title": "Кофе с коллегой",
+              "unit_points": 80,
+              "quantity": 2
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "Повторный кэшбек отклонён",
+    "method": "POST",
+    "path": "/api/cashback/1/claim",
+    "request": {
+      "order_id": 1
+    },
+    "status": 409,
+    "response": {
+      "error": {
+        "code": "ALREADY_CLAIMED",
+        "message": "Кэшбек по заказу уже начислен."
+      }
+    }
+  },
+  {
+    "name": "Недельный лимит",
+    "method": "POST",
+    "path": "/api/wheel/spin",
+    "request": {
+      "stake": 5
+    },
+    "status": 409,
+    "response": {
+      "error": {
+        "code": "WHEEL_COOLDOWN",
+        "message": "Вращение доступно раз в семь дней."
+      }
+    }
+  },
+  {
+    "name": "Статистика завершённого отрезка",
+    "method": "GET",
+    "path": "/api/pomodoro?day=2026-11-21",
+    "status": 200,
+    "response": {
+      "day": "2026-11-21",
+      "items": [
+        {
+          "kind": "focus",
+          "runs": 1,
+          "minutes": 1
+        }
+      ]
+    }
+  }
+]

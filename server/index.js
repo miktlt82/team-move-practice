@@ -5,23 +5,33 @@ import { fileURLToPath } from 'node:url';
 import { createApi } from './api.js';
 import { openDatabase } from './db.js';
 import { HttpError, json } from './http.js';
+import { createTelegram } from './telegram.js';
+import { siteSettings } from './settings.js';
+
+const escapeHtml = value => value.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[ch]);
 
 const assets = {
   '/': ['../public/index.html', 'text/html'],
   '/styles.css': ['../public/styles.css', 'text/css'],
   '/app.js': ['../public/app.js', 'text/javascript'],
+  '/game.js': ['../public/game.js', 'text/javascript'],
+  '/pomodoro.js': ['../public/pomodoro.js', 'text/javascript'],
   '/docs': ['../public/api-docs.html', 'text/html'],
   '/api-docs.js': ['../public/api-docs.js', 'text/javascript'],
   '/openapi.json': ['../openapi.json', 'application/json'],
   '/team-brand.png': ['../public/team-brand.png', 'image/png'],
+  '/site-logo': ['../public/team-brand.png', 'image/png'],
   '/team-move-hero.webp': ['../public/team-move-hero.webp', 'image/webp'],
   '/team-move-rewards.webp': ['../public/team-move-rewards.webp', 'image/webp'],
+  '/team-reward-book.webp': ['../public/team-reward-book.webp', 'image/webp'],
+  '/team-reward-notebook.webp': ['../public/team-reward-notebook.webp', 'image/webp'],
   '/fonts/golos-text.ttf': ['../public/fonts/golos-text.ttf', 'font/ttf'],
 };
 
-export function createApp({ filename = ':memory:', demo, allowedOrigin, secureCookie, adminEmail, adminPassword } = {}) {
+export function createApp({ filename = ':memory:', demo, allowedOrigin, secureCookie, adminEmail, adminPassword, telegramConfig } = {}) {
   const db = openDatabase(filename, { demo, adminEmail, adminPassword });
-  const api = createApi(db, { allowedOrigin, secureCookie });
+  const telegram = createTelegram(db, telegramConfig);
+  const api = createApi(db, { allowedOrigin, secureCookie, telegram });
   const server = createServer(async (request, response) => {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'same-origin');
@@ -32,7 +42,14 @@ export function createApp({ filename = ':memory:', demo, allowedOrigin, secureCo
       const asset = Object.hasOwn(assets, url.pathname) ? assets[url.pathname] : null;
       if (asset && ['GET','HEAD'].includes(request.method)) {
         const [path, type] = asset;
-        const body = await readFile(new URL(path, import.meta.url));
+        const logo = url.pathname === '/site-logo' ? db.prepare('SELECT logo FROM site_settings WHERE id=1').get()?.logo : null;
+        let body = logo ?? await readFile(new URL(path, import.meta.url));
+        if (url.pathname === '/') {
+          const { name, description } = siteSettings(db);
+          body = body.toString('utf8')
+            .replace(/<title>[^<]+<\/title>/, () => '<title>' + escapeHtml(name) + '</title>')
+            .replace(/<meta name="description" content="[^"]*">/, () => '<meta name="description" content="' + escapeHtml(description) + '">');
+        }
         const contentType = type.startsWith('text/') || type === 'application/json' ? type + '; charset=utf-8' : type;
         response.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
         return response.end(request.method === 'HEAD' ? undefined : body);
@@ -48,7 +65,7 @@ export function createApp({ filename = ':memory:', demo, allowedOrigin, secureCo
       response.destroy();
     }
   });
-  server.on('close', () => db.close());
+  server.on('close', () => { telegram.stop(); db.close(); });
   return server;
 }
 
@@ -62,7 +79,9 @@ if (process.argv[1] && resolve(process.argv[1]).toLowerCase() === fileURLToPath(
   if (Boolean(adminEmail) !== Boolean(adminPassword) || (adminPassword && adminPassword.length < 12)) {
     throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD together. Use at least 12 characters.');
   }
-  const server = createApp({ filename, demo, adminEmail, adminPassword,
+  const telegramConfig = { token: process.env.TELEGRAM_BOT_TOKEN, username: process.env.TELEGRAM_BOT_USERNAME,
+    secret: process.env.TELEGRAM_WEBHOOK_SECRET };
+  const server = createApp({ filename, demo, adminEmail, adminPassword, telegramConfig,
     allowedOrigin: process.env.PUBLIC_ORIGIN, secureCookie: process.env.SECURE_COOKIE === '1' });
   server.listen(port, host, () => console.log('Командный ход: http://' + host + ':' + server.address().port));
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close());

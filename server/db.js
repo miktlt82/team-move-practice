@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { passwordHash } from './auth.js';
 import { starterTasks, starterRewards } from './catalog.js';
+import { seedExtensions } from './extensions-seed.js';
 
 export const demoAccounts = [
   ['employee@example.test', 'Алекс Морозов', 'EmployeeDemo!2026', 'employee'],
@@ -26,6 +27,7 @@ export function openDatabase(filename, { demo = false, adminEmail, adminPassword
   const db = new DatabaseSync(filename);
   db.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;');
   db.exec(readFileSync(new URL('./schema.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('./extensions.sql', import.meta.url), 'utf8'));
   const insertUser = db.prepare(
     'INSERT INTO users(email,name,password_hash,role) VALUES(?,?,?,?) ON CONFLICT(email) DO NOTHING'
   );
@@ -45,6 +47,7 @@ export function openDatabase(filename, { demo = false, adminEmail, adminPassword
         for (const row of rows) insert.run(...row);
       }
     }
+    if (demo) seedExtensions(db);
   });
   return db;
 }
