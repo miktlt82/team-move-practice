@@ -51,28 +51,50 @@ function header(path) {
     : '<a href="#/login">Войти</a>';
 }
 
-function cards(items, table) {
-  return `<div class="tiles">${items.map(item => `<article class="card">
-    <div class="card-meta">${pill(categories[table][item.category])}${pill(`${isReward(table) ? '' : '+'}${item.points} б.`, 'points')}</div>
-    <h3>${escape(item.title)}</h3><p>${escape(item.description)}</p>
-    <a class="card-link" href="#/${table}/${item.id}" aria-label="Подробнее: ${escape(item.title)}">Подробнее</a>
-  </article>`).join('')}</div>`;
+function catalogList(items, table, featured = false) {
+  const reward = isReward(table);
+  return `<ul class="catalog-list${featured ? ' featured-list' : ''}">${items.map(item => `<li>
+    <a class="catalog-entry" href="#/${table}/${item.id}" aria-label="Подробнее: ${escape(item.title)}">
+      <span class="catalog-category">${escape(categories[table][item.category])}</span>
+      <span class="catalog-info">
+        <strong>${escape(item.title)}</strong>
+        <span class="catalog-description">${escape(item.description)}</span>
+      </span>
+      <span class="catalog-points">${reward ? '' : '+'}${item.points}<small> б.</small></span>
+      <span class="catalog-arrow" aria-hidden="true">↗</span>
+    </a>
+  </li>`).join('')}</ul>`;
 }
 
 async function home() {
   const { items } = await api('/tasks?sort=points-desc');
-  return `<section class="hero"><div>${title('Хорошая работа приносит баллы', 'Выполняйте задания, осваивайтесь в команде и обменивайте баллы на корпоративные награды.')}
-    <div class="actions">${button('Смотреть задания', '#/tasks', 'primary')}${button(user ? 'Мой кабинет' : 'Создать аккаунт', user ? '#/profile' : '#/register')}</div></div>
-    <div class="route-board"><h2>Как это работает</h2><ol>
-      <li><span>1</span>Выберите задание</li><li><span>2</span>Отправьте отчёт на проверку</li><li><span>3</span>Обменяйте баллы на награду</li>
-    </ol></div></section>
-    <section class="section"><div class="section-title"><h2>Открытые задания</h2><a href="#/tasks">Все задания</a></div>
-    ${items.length ? cards(items.slice(0, 3), 'tasks') : empty('Открытые задания появятся здесь.')}</section>`;
+  return `<section class="hero">
+    <div class="hero-intro">
+      <h1>Задания<br> для команды</h1>
+      <p class="lead">Выполняйте задания, получайте баллы за принятые отчёты и обменивайте их на награды.</p>
+      <div class="actions">${button('Смотреть задания', '#/tasks', 'primary')}
+        ${button(user ? 'Мой кабинет' : 'Создать аккаунт', user ? '#/profile' : '#/register', 'quiet')}</div>
+    </div>
+    <img class="hero-photo" src="/team-move-hero.webp" alt="" fetchpriority="high">
+  </section>
+  <ol class="route-steps" aria-label="Как это работает" role="list">
+    <li><span aria-hidden="true">1</span>Выберите задание</li>
+    <li><span aria-hidden="true">2</span>Отправьте отчёт на проверку</li>
+    <li><span aria-hidden="true">3</span>Обменяйте баллы на награду</li>
+  </ol>
+  <section class="section home-tasks">
+    <div class="section-title"><h2>Открытые задания</h2><a href="#/tasks">Все задания</a></div>
+    ${items.length ? catalogList(items.slice(0, 3), 'tasks', true) : empty('Открытые задания появятся здесь.')}
+  </section>`;
 }
 
 async function catalog(table, params) {
   const { items } = await api('/' + table + '?' + params.toString());
-  return `${title(noun(table), isReward(table) ? 'Выберите, на что потратить заработанные баллы.' : 'Выберите задание и отправьте короткий отчёт после выполнения.')}
+  const intro = isReward(table) ? `<header class="reward-intro">
+      <div>${title('Награды', 'Выберите, на что потратить заработанные баллы.')}</div>
+      <img src="/team-move-rewards.webp" alt="">
+    </header>` : title('Задания', 'Выберите задание и отправьте короткий отчёт после выполнения.');
+  return `${intro}
     <form class="filters" data-form="filters" data-target="/${table}">
       <label>Поиск<input name="q" maxlength="100" type="search" placeholder="Название или описание" value="${escape(params.get('q'))}"></label>
       <label>Категория<select name="category"><option value="">Все категории</option>
@@ -80,7 +102,7 @@ async function catalog(table, params) {
       <label>Сортировка<select name="sort">${Object.entries(sortOptions).map(([key, label]) => option(key, label, params.get('sort') || 'new')).join('')}</select></label>
       <button class="button primary">Найти</button>
     </form><p class="form-note">Найдено: ${items.length}</p>
-    <div class="compact-actions">${items.length ? cards(items, table) : empty('Измените запрос или выберите другую категорию.')}</div>`;
+    <div class="compact-actions">${items.length ? catalogList(items, table) : empty('Измените запрос или выберите другую категорию.')}</div>`;
 }
 
 function nextLogin(path) {

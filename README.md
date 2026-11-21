@@ -6,10 +6,11 @@
 | --- | --- |
 | Локальный демо-стенд | [Открыть приложение](http://127.0.0.1:8097/) |
 | Исходный код | [Репозиторий GitHub](https://github.com/miktlt82/team-move-practice) |
-| Макеты | [Figma Design](https://www.figma.com/design/heJgk2RPrcrbCd9xvOfR2s) |
-| Интерактивный прототип | [Запустить сценарий в Figma](https://www.figma.com/proto/heJgk2RPrcrbCd9xvOfR2s?node-id=1-654&starting-point-node-id=1%3A654) |
+| Макеты первой версии | [Figma Design](https://www.figma.com/design/heJgk2RPrcrbCd9xvOfR2s) |
+| Интерактивный прототип первой версии | [Запустить сценарий в Figma](https://www.figma.com/proto/heJgk2RPrcrbCd9xvOfR2s?node-id=1-654&starting-point-node-id=1%3A654) |
 | API | [Веб-документация](http://127.0.0.1:8097/docs) · [OpenAPI 3.1](openapi.json) |
 | Проектирование и отчёт | [Архитектура и ER-диаграмма](docs/architecture.md) · [Отчёт PDF](docs/report.pdf) · [Примеры ответов из браузерной проверки](docs/api-run.json) |
+| Графика | [Знак, иллюстрации и промпты GPT Image](docs/design-assets.md) · [Лицензия Golos Text](public/fonts/OFL.txt) |
 
 Демо-адрес доступен на компьютере, где запущено приложение. GitHub-репозиторий приватный.
 

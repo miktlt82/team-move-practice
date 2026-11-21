@@ -13,7 +13,10 @@ const assets = {
   '/docs': ['../public/api-docs.html', 'text/html'],
   '/api-docs.js': ['../public/api-docs.js', 'text/javascript'],
   '/openapi.json': ['../openapi.json', 'application/json'],
-  '/team-mark.svg': ['../public/team-mark.svg', 'image/svg+xml'],
+  '/team-brand.png': ['../public/team-brand.png', 'image/png'],
+  '/team-move-hero.webp': ['../public/team-move-hero.webp', 'image/webp'],
+  '/team-move-rewards.webp': ['../public/team-move-rewards.webp', 'image/webp'],
+  '/fonts/golos-text.ttf': ['../public/fonts/golos-text.ttf', 'font/ttf'],
 };
 
 export function createApp({ filename = ':memory:', demo, allowedOrigin, secureCookie, adminEmail, adminPassword } = {}) {
@@ -30,7 +33,8 @@ export function createApp({ filename = ':memory:', demo, allowedOrigin, secureCo
       if (asset && ['GET','HEAD'].includes(request.method)) {
         const [path, type] = asset;
         const body = await readFile(new URL(path, import.meta.url));
-        response.writeHead(200, { 'Content-Type': type + '; charset=utf-8', 'Cache-Control': 'no-cache' });
+        const contentType = type.startsWith('text/') || type === 'application/json' ? type + '; charset=utf-8' : type;
+        response.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
         return response.end(request.method === 'HEAD' ? undefined : body);
       }
       return json(response, 404, { error: { code: 'NOT_FOUND', message: 'Страница не найдена.' } });
