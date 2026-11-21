@@ -6,8 +6,8 @@
 | --- | --- |
 | Локальный демо-стенд | [Открыть приложение](http://127.0.0.1:8097/) |
 | Исходный код | [Репозиторий GitHub](https://github.com/miktlt82/team-move-practice) |
-| Макеты первой версии | [Figma Design](https://www.figma.com/design/heJgk2RPrcrbCd9xvOfR2s) |
-| Интерактивный прототип первой версии | [Запустить сценарий в Figma](https://www.figma.com/proto/heJgk2RPrcrbCd9xvOfR2s?node-id=1-654&starting-point-node-id=1%3A654) |
+| Макеты | [Figma Design · Активности и другие новые экраны](https://www.figma.com/design/heJgk2RPrcrbCd9xvOfR2s?node-id=20-4499) |
+| Интерактивный прототип | [Активности, магазин и управление](https://www.figma.com/proto/heJgk2RPrcrbCd9xvOfR2s?node-id=20-4499&starting-point-node-id=20%3A4499&page-id=0%3A1) · [От задания к баллам](https://www.figma.com/proto/heJgk2RPrcrbCd9xvOfR2s?node-id=1-654&starting-point-node-id=1%3A654) |
 | API | [Веб-документация](http://127.0.0.1:8097/docs) · [OpenAPI 3.1](openapi.json) |
 | Проектирование и отчёт | [Архитектура и ER-диаграммы](docs/architecture.md) · [Отчёт PDF](docs/report.pdf) · [Примеры ответов новых модулей](docs/expanded-api-run.json) |
 | Графика | [Знак, иллюстрации и промпты GPT Image](docs/design-assets.md) · [Лицензия Golos Text](public/fonts/OFL.txt) |
