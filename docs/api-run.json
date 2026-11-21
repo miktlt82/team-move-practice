@@ -1,0 +1,63 @@
+[
+  {
+    "route": "GET /api/tasks?q=КОМАНДОЙ&category=onboarding",
+    "status": 200,
+    "response": {
+      "items": [
+        {
+          "id": 1,
+          "title": "Знакомство с командой",
+          "points": 120
+        }
+      ]
+    }
+  },
+  {
+    "route": "POST /api/auth/register",
+    "status": 201,
+    "response": {
+      "name": "Маша Орлова",
+      "role": "employee"
+    }
+  },
+  {
+    "route": "POST /api/tasks/1/submit (пустой отчёт)",
+    "status": 422,
+    "response": {
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Проверьте заполнение полей.",
+        "fields": {
+          "note": "Отчёт — от 10 до 1000 символов."
+        }
+      }
+    }
+  },
+  {
+    "route": "POST /api/tasks/1/submit",
+    "status": 201,
+    "response": {
+      "id": 3,
+      "task_id": 1,
+      "status": "pending",
+      "points": 120
+    }
+  },
+  {
+    "route": "PATCH /api/admin/submissions/3",
+    "status": 200,
+    "response": {
+      "status": "approved",
+      "points": 120
+    }
+  },
+  {
+    "route": "POST /api/rewards/1/redeem",
+    "status": 201,
+    "response": {
+      "reward_id": 1,
+      "points": 80,
+      "balance": 40
+    }
+  }
+]

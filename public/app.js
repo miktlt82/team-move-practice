@@ -1,0 +1,361 @@
+const main = document.querySelector('#main');
+const nav = document.querySelector('#nav');
+const account = document.querySelector('#account');
+const categories = {
+  tasks: { onboarding: 'Адаптация', team: 'Команда', learning: 'Обучение' },
+  rewards: { perks: 'Бонусы', learning: 'Обучение', merch: 'Мерч' },
+};
+const statuses = { pending: 'На проверке', approved: 'Принято', rejected: 'На доработку' };
+const sortOptions = { new: 'Сначала новые', 'points-desc': 'Больше баллов', 'points-asc': 'Меньше баллов' };
+const date = value => new Date(value.replace(' ', 'T') + 'Z').toLocaleDateString('ru-RU');
+const escape = value => String(value ?? '').replace(/[&<>"']/g, char =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const button = (label, href, style = '') =>
+  `<a class="button ${style}" href="${href}">${escape(label)}</a>`;
+const pill = (label, style = '') => `<span class="pill ${style}">${escape(label)}</span>`;
+const option = (key, label, current) => `<option value="${key}" ${key === current ? 'selected' : ''}>${escape(label)}</option>`;
+const title = (heading, lead = '') => `<h1>${escape(heading)}</h1>${lead ? `<p class="lead">${escape(lead)}</p>` : ''}`;
+const formMessage = '<p class="form-message" role="status" aria-live="polite"></p>';
+const notice = text => `<p class="status" role="status">${escape(text)}</p>`;
+const empty = text => `<p class="surface">${escape(text)}</p>`;
+const isReward = table => table === 'rewards';
+const noun = table => isReward(table) ? 'Награды' : 'Задания';
+let user = null;
+let renderVersion = 0;
+
+async function api(url, { method = 'GET', body } = {}) {
+  const response = await fetch('/api' + url, {
+    method, headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (response.status === 204) return;
+  const payload = await response.json();
+  if (!response.ok) {
+    const error = new Error(payload.error.message);
+    error.status = response.status;
+    error.fields = payload.error.fields;
+    throw error;
+  }
+  return payload;
+}
+
+function header(path) {
+  const links = [['/', 'Главная'], ['/tasks', 'Задания'], ['/rewards', 'Награды'], ['/leaderboard', 'Рейтинг']];
+  if (user?.role === 'admin') links.push(['/admin', 'Управление']);
+  nav.innerHTML = links.map(([url, label]) => {
+    const current = url === '/' ? path === url : path.startsWith(url);
+    return `<a href="#${url}" ${current ? 'aria-current="page"' : ''}>${label}</a>`;
+  }).join('');
+  account.innerHTML = user
+    ? '<a href="#/profile">Кабинет</a><button type="button" data-action="logout">Выйти</button>'
+    : '<a href="#/login">Войти</a>';
+}
+
+function cards(items, table) {
+  return `<div class="tiles">${items.map(item => `<article class="card">
+    <div class="card-meta">${pill(categories[table][item.category])}${pill(`${isReward(table) ? '' : '+'}${item.points} б.`, 'points')}</div>
+    <h3>${escape(item.title)}</h3><p>${escape(item.description)}</p>
+    <a class="card-link" href="#/${table}/${item.id}" aria-label="Подробнее: ${escape(item.title)}">Подробнее</a>
+  </article>`).join('')}</div>`;
+}
+
+async function home() {
+  const { items } = await api('/tasks?sort=points-desc');
+  return `<section class="hero"><div>${title('Хорошая работа приносит баллы', 'Выполняйте задания, осваивайтесь в команде и обменивайте баллы на корпоративные награды.')}
+    <div class="actions">${button('Смотреть задания', '#/tasks', 'primary')}${button(user ? 'Мой кабинет' : 'Создать аккаунт', user ? '#/profile' : '#/register')}</div></div>
+    <div class="route-board"><h2>Как это работает</h2><ol>
+      <li><span>1</span>Выберите задание</li><li><span>2</span>Отправьте отчёт на проверку</li><li><span>3</span>Обменяйте баллы на награду</li>
+    </ol></div></section>
+    <section class="section"><div class="section-title"><h2>Открытые задания</h2><a href="#/tasks">Все задания</a></div>
+    ${items.length ? cards(items.slice(0, 3), 'tasks') : empty('Открытые задания появятся здесь.')}</section>`;
+}
+
+async function catalog(table, params) {
+  const { items } = await api('/' + table + '?' + params.toString());
+  return `${title(noun(table), isReward(table) ? 'Выберите, на что потратить заработанные баллы.' : 'Выберите задание и отправьте короткий отчёт после выполнения.')}
+    <form class="filters" data-form="filters" data-target="/${table}">
+      <label>Поиск<input name="q" maxlength="100" type="search" placeholder="Название или описание" value="${escape(params.get('q'))}"></label>
+      <label>Категория<select name="category"><option value="">Все категории</option>
+        ${Object.entries(categories[table]).map(([key, label]) => option(key, label, params.get('category'))).join('')}</select></label>
+      <label>Сортировка<select name="sort">${Object.entries(sortOptions).map(([key, label]) => option(key, label, params.get('sort') || 'new')).join('')}</select></label>
+      <button class="button primary">Найти</button>
+    </form><p class="form-note">Найдено: ${items.length}</p>
+    <div class="compact-actions">${items.length ? cards(items, table) : empty('Измените запрос или выберите другую категорию.')}</div>`;
+}
+
+function nextLogin(path) {
+  return '#/login?' + new URLSearchParams({ next: path });
+}
+
+async function detail(table, id) {
+  const item = await api('/' + table + '/' + id);
+  const reward = isReward(table);
+  const path = '/' + table + '/' + id;
+  let operation = button('Войти в аккаунт', nextLogin(path), 'primary');
+  let balance = '';
+  if (user?.role === 'employee') {
+    const data = await api('/me/dashboard');
+    balance = reward ? `<p>Ваш баланс: <strong>${data.balance} б.</strong></p>` : '';
+    const submission = data.submissions.find(row => row.task_id === id);
+    const redeemed = data.redemptions.some(row => row.reward_id === id);
+    if (reward) {
+      const control = data.balance >= item.points
+        ? '<button class="button primary">Подтвердить обмен</button>'
+        : '<button class="button primary">Проверить баланс и обменять</button>';
+      operation = redeemed ? notice('Награда уже получена. Запись есть в кабинете.')
+        : `<form class="form" data-form="redeem" data-id="${id}">${control}${formMessage}</form>`;
+    } else {
+      operation = submission && submission.status !== 'rejected' ? notice(statuses[submission.status])
+        : `${submission ? notice('Комментарий: ' + submission.feedback) : ''}
+          <form class="form" data-form="submit-task" data-id="${id}">
+          <label>Отчёт<textarea required name="note" minlength="10" maxlength="1000" placeholder="Что вы сделали и каким был результат?"></textarea></label>
+          <p class="form-note">От 10 до 1 000 символов.</p>
+          <button class="button primary">Отправить на проверку</button>${formMessage}</form>`;
+    }
+  } else if (user) {
+    operation = button('Открыть управление', '#/admin/' + table + '/' + id);
+  }
+  return `<a class="back" href="#/${table}">← ${noun(table)}</a>${title(item.title)}
+    <div class="detail"><article class="surface"><div class="card-meta">${pill(categories[table][item.category])}</div>
+    <h2 class="compact-actions">${reward ? 'О награде' : 'Что нужно сделать'}</h2><p>${escape(item.description)}</p></article>
+    <section class="surface"><h2>${reward ? 'Обмен баллов' : 'Сдать задание'}</h2>
+    <p>${reward ? 'Стоимость' : 'За принятый отчёт'}: <strong>${item.points} б.</strong></p>${balance}
+    <div class="compact-actions">${operation}</div></section></div>`;
+}
+
+function auth(mode, params) {
+  const registering = mode === 'register';
+  const next = params.get('next') ?? '';
+  const safe = /^\/(tasks|rewards)(?:\/[1-9]\d*)?$/.test(next) || /^\/(profile|leaderboard)$/.test(next) ? next : '/profile';
+  const suffix = '?' + new URLSearchParams({ next: safe });
+  return `<section class="surface auth-frame">${title(registering ? 'Создать аккаунт' : 'Войти', registering ? 'Зарегистрируйтесь как сотрудник.' : 'Откройте кабинет и продолжите работу с заданиями.')}
+    <form class="form" data-form="${mode}" data-next="${safe}">
+      ${registering ? '<label>Имя<input name="name" autocomplete="name" minlength="2" maxlength="80" required></label>' : ''}
+      <label>Email<input name="email" type="email" autocomplete="email" maxlength="254" placeholder="name@example.com" required></label>
+      <label>Пароль<input name="password" type="password" autocomplete="${registering ? 'new-password' : 'current-password'}"
+        ${registering ? 'minlength="8"' : ''} maxlength="128" required></label>
+      ${registering ? '<p class="form-note">От 8 символов.</p>' : ''}
+      <button class="button primary">${registering ? 'Зарегистрироваться' : 'Войти'}</button>${formMessage}
+    </form><p class="compact-actions"><a href="#/${registering ? 'login' : 'register'}${suffix}">${registering ? 'Уже есть аккаунт? Войти' : 'Создать аккаунт'}</a></p></section>`;
+}
+
+async function profile() {
+  const data = await api('/me/dashboard');
+  const { progress, balance, submissions, ledger, redemptions } = data;
+  return `${title('Личный кабинет', data.user.name + ' · ' + data.user.email)}
+    <section class="stats section" aria-label="Сводка">
+      <div class="stat">Баланс<strong>${balance} б.</strong></div>
+      <div class="stat">Отчёты приняты<strong>${submissions.filter(row => row.status === 'approved').length}</strong></div>
+      <div class="stat">Награды получены<strong>${redemptions.length}</strong></div></section>
+    <section class="section surface"><div class="section-title"><h2>Адаптация</h2><a href="#/tasks?category=onboarding">Задания адаптации</a></div>
+      <p>Выполнено ${progress.completed} из ${progress.total}</p>
+      <progress class="progress" aria-label="Прогресс адаптации" value="${progress.completed}" max="${progress.total || 1}"></progress></section>
+    <div class="split section"><section class="surface"><h2>Мои отчёты</h2>
+      ${submissions.length ? `<ul class="rows">${submissions.map(row => `<li><div class="row-line"><strong>${escape(row.title)}</strong>${pill(statuses[row.status], row.status)}</div>
+        ${row.feedback ? `<p>${escape(row.feedback)}</p>` : ''}${row.status === 'rejected' && row.active ? `<a href="#/tasks/${row.task_id}">Доработать отчёт</a>` : ''}</li>`).join('')}</ul>` : '<p>Отчётов пока нет.</p>'}
+    </section><section class="surface"><h2>История баллов</h2>
+      ${ledger.length ? `<ul class="rows">${ledger.map(row => `<li class="row-line"><span>${escape(row.title)}<br><small>${date(row.created_at)}</small></span><strong>${row.amount > 0 ? '+' : ''}${row.amount} б.</strong></li>`).join('')}</ul>` : '<p>Операций пока нет.</p>'}
+    </section></div>
+    <div class="split section"><section class="surface"><h2>Настройки профиля</h2>
+      <form class="form" data-form="profile"><label>Имя<input name="name" value="${escape(data.user.name)}" required minlength="2" maxlength="80"></label>
+      <button class="button">Сохранить имя</button>${formMessage}</form></section>
+    <section class="surface"><h2>Мои награды</h2>
+      ${redemptions.length ? `<ul class="rows">${redemptions.map(row => `<li class="row-line"><strong>${escape(row.title)}</strong><span>${row.points} б.</span></li>`).join('')}</ul>` : '<p>Обменов пока нет.</p>'}
+    </section></div>`;
+}
+
+async function leaderboard(params) {
+  const metric = params.get('metric') === 'tasks' ? 'tasks' : 'points';
+  const { items } = await api('/leaderboard?metric=' + metric);
+  return `${title('Рейтинг команды', 'Показатели обновляются после проверки отчётов.')}
+    <div class="actions">${button('По заработанным баллам', '#/leaderboard?metric=points', metric === 'points' ? 'primary' : '')}
+    ${button('По выполненным заданиям', '#/leaderboard?metric=tasks', metric === 'tasks' ? 'primary' : '')}</div>
+    <section class="surface section">${items.length ? `<ol class="rows">${items.map((item, index) =>
+      `<li class="row-line"><span>${index + 1}. ${escape(item.name)}</span><strong>${item.score} ${metric === 'points' ? 'б.' : 'зад.'}</strong></li>`).join('')}</ol>` : '<p>Рейтинг появится после первого принятого отчёта.</p>'}</section>`;
+}
+
+async function adminPage(params) {
+  const queueStatus = params.get('status') || 'pending';
+  const [tasks, rewards, reviews] = await Promise.all([
+    api('/admin/tasks'), api('/admin/rewards'), api('/admin/submissions?status=' + encodeURIComponent(queueStatus)),
+  ]);
+  return `${title('Управление', 'Проверяйте отчёты сотрудников, обновляйте задания и награды.')}
+    <section class="section"><h2>Отчёты сотрудников</h2>
+      <div class="actions">${Object.entries(statuses).map(([key, label]) =>
+        button(label, '#/admin?status=' + key, key === queueStatus ? 'primary' : '')).join('')}</div>
+      <div class="split compact-actions">${reviews.items.map(row => `<article class="card">
+        <h3>${escape(row.title)}</h3><p>${escape(row.name)} · ${row.points} б.</p><p>${escape(row.note)}</p>
+        ${row.status === 'pending' ? `<form class="form" data-form="review" data-id="${row.id}">
+          <label>Комментарий<textarea name="feedback" maxlength="500" placeholder="Обязателен при возврате"></textarea></label>
+          <div class="actions compact-actions"><button class="button primary" name="decision" value="approved">Принять</button>
+          <button class="button danger" name="decision" value="rejected">Вернуть</button></div>${formMessage}</form>` : `<p>${escape(row.feedback)}</p>`}
+        </article>`).join('') || empty('В этом разделе пока нет отчётов.')}</div></section>
+    <div class="split section">${[['tasks', tasks.items], ['rewards', rewards.items]].map(([table, items]) => `<section class="surface">
+      <div class="section-title"><h2>${noun(table)}</h2>${button('Добавить', '#/admin/' + table + '/new', 'primary')}</div>
+      <ul class="rows">${items.map(item => `<li class="row-line"><span>${escape(item.title)} · ${item.points} б.${item.active ? '' : ' · архив'}</span>
+        <a href="#/admin/${table}/${item.id}">Изменить</a></li>`).join('')}</ul></section>`).join('')}</div>`;
+}
+
+async function editor(table, id) {
+  const item = id === 'new' ? {} : await api('/admin/' + table + '/' + id);
+  const label = isReward(table) ? 'награду' : 'задание';
+  return `<a class="back" href="#/admin">← Управление</a><section class="surface narrow">${title((item.id ? 'Изменить ' : 'Добавить ') + label)}
+    <form class="form" data-form="editor" data-table="${table}" data-id="${item.id ?? ''}">
+      <label>Название<input name="title" value="${escape(item.title)}" required minlength="3" maxlength="100"></label>
+      <label>Описание<textarea name="description" required minlength="10" maxlength="1200">${escape(item.description)}</textarea></label>
+      <label>Категория<select name="category" required><option value="">Выберите категорию</option>
+      ${Object.entries(categories[table]).map(([key, text]) => option(key, text, item.category)).join('')}</select></label>
+      <label>${isReward(table) ? 'Стоимость в баллах' : 'Баллы за выполнение'}<input name="points" type="number" required min="1" max="10000" value="${item.points ?? ''}"></label>
+      <label class="check"><input type="checkbox" name="active" ${item.active === 0 ? '' : 'checked'}>Видно в каталоге</label>
+      <div class="actions compact-actions"><button class="button primary">Сохранить</button>
+      ${item.active ? '<button type="submit" formnovalidate class="button danger" name="decision" value="archive">Убрать в архив</button>' : ''}</div>
+      ${formMessage}</form></section>`;
+}
+
+async function view(path, params) {
+  if (path === '/') return home();
+  if (path === '/tasks' || path === '/rewards') return catalog(path.slice(1), params);
+  const object = /^\/(tasks|rewards)\/([1-9]\d{0,14})$/.exec(path);
+  if (object) return detail(object[1], Number(object[2]));
+  if (path === '/login' || path === '/register') return auth(path.slice(1), params);
+  if (path === '/profile' || path === '/leaderboard') {
+    if (!user) return `${title('Требуется вход')}<div class="actions">${button('Войти', nextLogin(path), 'primary')}</div>`;
+    return path === '/profile' ? profile() : leaderboard(params);
+  }
+  if (path === '/admin' || path.startsWith('/admin/')) {
+    if (user?.role !== 'admin') return `${title('Доступ для администраторов')}<div class="actions">${button('На главную', '#/')}</div>`;
+    if (path === '/admin') return adminPage(params);
+    const match = /^\/admin\/(tasks|rewards)\/(new|[1-9]\d{0,14})$/.exec(path);
+    if (match) return editor(match[1], match[2]);
+  }
+  return `${title('Страница не найдена')}<div class="actions">${button('На главную', '#/')}</div>`;
+}
+
+async function render({ focus = false, message = '' } = {}) {
+  const version = ++renderVersion;
+  const [path, search] = (location.hash.slice(1).startsWith('/') ? location.hash.slice(1) : '/').split('?');
+  header(path);
+  main.setAttribute('aria-busy', 'true');
+  main.innerHTML = '<p role="status">Загружаем данные…</p>';
+  try {
+    const content = await view(path, new URLSearchParams(search));
+    if (version !== renderVersion) return;
+    main.innerHTML = (message ? notice(message) : '') + content;
+  } catch (error) {
+    if (version !== renderVersion) return;
+    if (error.status === 401) {
+      user = null;
+      header(path);
+      main.innerHTML = `${title('Сеанс завершён')}<div class="actions">${button('Войти', nextLogin(path), 'primary')}</div>`;
+    } else {
+      main.innerHTML = `${title(error.status === 404 ? 'Запись не найдена' : 'Данные недоступны')}
+        <p class="status error" role="alert">${escape(error.status ? error.message : 'Проверьте подключение и повторите попытку.')}</p>
+        <div class="actions"><button class="button" data-action="retry">Обновить</button>${button('На главную', '#/')}</div>`;
+    }
+  } finally {
+    if (version === renderVersion) {
+      main.removeAttribute('aria-busy');
+      document.title = (main.querySelector('h1')?.textContent || 'Портал') + ' · Командный ход';
+      if (focus) main.focus();
+    }
+  }
+}
+
+function go(path) {
+  if (location.hash === '#' + path) return render({ focus: true });
+  location.hash = path;
+}
+
+async function submit(form, submitter) {
+  const { form: kind, id, next, target, table } = form.dataset;
+  const data = Object.fromEntries(new FormData(form));
+  const decision = submitter?.value;
+  if (kind === 'filters') {
+    const params = new URLSearchParams();
+    Object.entries(data).forEach(([key, value]) => { if (value.trim()) params.set(key, value.trim()); });
+    return go(target + '?' + params);
+  }
+  const message = form.querySelector('.form-message');
+  const buttons = [...form.querySelectorAll('button')];
+  buttons.forEach(item => { item.disabled = true; });
+  form.querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
+  message.className = 'form-message';
+  message.textContent = 'Отправляем…';
+  try {
+    if (kind === 'login' || kind === 'register') {
+      user = await api('/auth/' + kind, { method: 'POST', body: data });
+      return go(next);
+    }
+    if (kind === 'profile') {
+      user = await api('/me', { method: 'PATCH', body: data });
+      return render({ focus: true, message: 'Имя сохранено.' });
+    }
+    if (kind === 'submit-task') {
+      await api('/tasks/' + id + '/submit', { method: 'POST', body: data });
+      return render({ focus: true, message: 'Отчёт отправлен на проверку.' });
+    }
+    if (kind === 'redeem') {
+      await api('/rewards/' + id + '/redeem', { method: 'POST' });
+      return render({ focus: true, message: 'Баллы обменяны. Награда добавлена в кабинет.' });
+    }
+    if (kind === 'review') {
+      await api('/admin/submissions/' + id, { method: 'PATCH', body: { status: decision, feedback: data.feedback } });
+      return render({ focus: true, message: decision === 'approved' ? 'Отчёт принят. Баллы начислены.' : 'Отчёт возвращён сотруднику.' });
+    }
+    if (kind === 'editor') {
+      const url = '/admin/' + table + (id ? '/' + id : '');
+      if (decision === 'archive') {
+        if (!window.confirm('Убрать эту запись из публичного каталога?')) {
+          message.textContent = '';
+          return;
+        }
+        await api(url, { method: 'DELETE' });
+      } else {
+        await api(url, { method: id ? 'PUT' : 'POST', body: { ...data, points: Number(data.points), active: data.active === 'on' } });
+      }
+      return go('/admin');
+    }
+  } catch (error) {
+    if (error.status === 401 && kind !== 'login' && kind !== 'register') {
+      user = null;
+      return render({ focus: true, message: 'Сеанс завершён. Войдите снова.' });
+    }
+    message.className = 'form-message error';
+    message.textContent = error.fields ? Object.values(error.fields).join(' ')
+      : error.status ? error.message : 'Проверьте подключение и повторите попытку.';
+    for (const field of Object.keys(error.fields ?? {})) form.elements.namedItem(field)?.setAttribute('aria-invalid', 'true');
+  } finally {
+    buttons.forEach(item => { item.disabled = false; });
+  }
+}
+
+main.addEventListener('submit', event => {
+  if (!event.target.dataset.form) return;
+  event.preventDefault();
+  void submit(event.target, event.submitter);
+});
+main.addEventListener('click', event => {
+  if (event.target.closest('[data-action="retry"]')) void render({ focus: true });
+});
+account.addEventListener('click', async event => {
+  const control = event.target.closest('[data-action="logout"]');
+  if (!control) return;
+  control.disabled = true;
+  try {
+    await api('/auth/logout', { method: 'POST' });
+    user = null;
+    go('/');
+  } catch {
+    await render({ focus: true, message: 'Выход не выполнен. Проверьте подключение и повторите попытку.' });
+  } finally {
+    control.disabled = false;
+  }
+});
+document.querySelector('.skip').addEventListener('click', event => { event.preventDefault(); main.focus(); });
+window.addEventListener('hashchange', () => { void render({ focus: true }); });
+try {
+  user = await api('/me');
+} catch (error) {
+  if (error.status !== 401) console.warn('Не удалось загрузить сессию.');
+}
+void render();

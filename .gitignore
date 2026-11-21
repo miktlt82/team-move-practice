@@ -1,0 +1,5 @@
+.work/
+data/
+.env
+node_modules/
+*.log
